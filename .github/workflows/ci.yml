@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: license_server
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/license_server
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Compile
+        run: ./mvnw -B compile
+
+      - name: Test
+        run: ./mvnw -B test
+
+      - name: Package
+        run: ./mvnw -B -DskipTests package
+
+      # Хранилища и пароли берутся только из GitHub Secrets и не попадают в артефакты
+      - name: HTTPS and signature smoke test
+        env:
+          SSL_KEYSTORE_BASE64: ${{ secrets.SSL_KEYSTORE_BASE64 }}
+          SSL_KEYSTORE_PASSWORD: ${{ secrets.SSL_KEYSTORE_PASSWORD }}
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          for v in SSL_KEYSTORE_BASE64 SSL_KEYSTORE_PASSWORD SIGNING_KEYSTORE_BASE64 SIGNING_KEYSTORE_PASSWORD JWT_SECRET; do
+            if [ -z "${!v}" ]; then
+              echo "::warning::Секрет $v не задан, проверка HTTPS и ЭЦП пропущена"
+              exit 0
+            fi
+          done
+          KS="$RUNNER_TEMP/server.p12"; SKS="$RUNNER_TEMP/signing.p12"
+          echo "$SSL_KEYSTORE_BASE64" | base64 -d > "$KS"
+          echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$SKS"
+          # Администратор только для этого прогона: случайные учётные данные, нигде не сохраняются
+          export ADMIN_EMAIL="ci-admin@ci.local" ADMIN_PASSWORD="Ci1!$(openssl rand -hex 16)"
+          SSL_KEYSTORE="file:$KS" SIGNING_KEYSTORE="file:$SKS" java -jar target/license-server-*.jar > "$RUNNER_TEMP/app.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -sk -o /dev/null https://localhost:8443/auth/csrf && break
+            sleep 2
+          done
+
+          CHAIN=$(echo | openssl s_client -connect localhost:8443 -servername localhost -showcerts 2>/dev/null | grep -c "BEGIN CERTIFICATE")
+          echo "Сертификатов в цепочке TLS: $CHAIN"
+          test "$CHAIN" -ge 3
+          CODE=$(curl -sk -o /dev/null -w "%{http_code}" https://localhost:8443/api/products)
+          echo "GET /api/products без токена: $CODE"
+          test "$CODE" = "401"
+
+          api() { curl -sk -X "$1" "https://localhost:8443$2" -H "Content-Type: application/json" ${3:+-H "Authorization: Bearer $3"} ${4:+-d "$4"}; }
+          ADMIN=$(api POST /auth/login "" "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .accessToken)
+          PRODUCT=$(api POST /api/products "$ADMIN" '{"name":"CI product"}' | jq .id)
+          TYPE=$(api POST /api/license-types "$ADMIN" '{"name":"CI month","defaultDurationInDays":30}' | jq .id)
+          USER_PASSWORD="Us1!$(openssl rand -hex 16)"
+          OWNER=$(api POST /auth/register "" "{\"email\":\"ci-user@ci.local\",\"password\":\"$USER_PASSWORD\"}" | jq .userId)
+          KEY=$(api POST /api/licenses "$ADMIN" "{\"productId\":$PRODUCT,\"typeId\":$TYPE,\"ownerId\":$OWNER,\"deviceCount\":1}" | jq -r .code)
+          USER=$(api POST /auth/login "" "{\"email\":\"ci-user@ci.local\",\"password\":\"$USER_PASSWORD\"}" | jq -r .accessToken)
+          api POST /api/licenses/activate "$USER" "{\"activationKey\":\"$KEY\",\"deviceMac\":\"00:11:22:33:44:55\",\"deviceName\":\"CI\"}" > "$RUNNER_TEMP/ticket.json"
+          echo "Тикет активации:"; jq .ticket "$RUNNER_TEMP/ticket.json"
+
+          # Проверка подписи внешним инструментом по открытому сертификату сервера
+          api GET /api/signature/certificate | jq -r .certificate > "$RUNNER_TEMP/signing.crt"
+          openssl x509 -in "$RUNNER_TEMP/signing.crt" -noout -subject
+          openssl x509 -in "$RUNNER_TEMP/signing.crt" -pubkey -noout > "$RUNNER_TEMP/signing.pub"
+          jq -cS .ticket "$RUNNER_TEMP/ticket.json" | tr -d '\n' > "$RUNNER_TEMP/canonical.json"
+          jq -r .signature "$RUNNER_TEMP/ticket.json" | base64 -d > "$RUNNER_TEMP/ticket.sig"
+          openssl dgst -sha256 -verify "$RUNNER_TEMP/signing.pub" -signature "$RUNNER_TEMP/ticket.sig" "$RUNNER_TEMP/canonical.json"
+
+          kill %1 || true
+          rm -f "$KS" "$SKS"
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-server-jar
+          path: target/license-server-*.jar
+          if-no-files-found: error

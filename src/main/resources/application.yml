@@ -1,0 +1,42 @@
+app:
+  jwt:
+    # Секрет обязателен (не менее 32 байт): задаётся переменной окружения JWT_SECRET
+    secret: ${JWT_SECRET}
+    access-token-expiration: ${JWT_ACCESS_EXPIRATION:900000}      # 15 минут
+    refresh-token-expiration: ${JWT_REFRESH_EXPIRATION:604800000}  # 7 дней
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/license_server}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+admin:
+  # Первичный администратор создаётся только если заданы обе переменные
+  email: ${ADMIN_EMAIL:}
+  password: ${ADMIN_PASSWORD:}
+
+server:
+  port: ${SERVER_PORT:8443}
+  ssl:
+    enabled: ${SSL_ENABLED:true}
+    # Хранилище с ключом сервера и цепочкой сертификатов (scripts/generate-certs.*); в репозиторий не коммитится
+    key-store: ${SSL_KEYSTORE:file:certs/server.p12}
+    key-store-type: PKCS12
+    key-store-password: ${SSL_KEYSTORE_PASSWORD:}
+    key-alias: ${SSL_KEY_ALIAS:server}
+
+license:
+  # Время жизни тикета, который получает клиент
+  ticket-lifetime: ${LICENSE_TICKET_LIFETIME:PT5M}
+
+signature:
+  # Хранилище PKCS12 с приватным ключом и сертификатом ЭЦП (scripts/generate-signing-key.*); в репозиторий не коммитится
+  key-store: ${SIGNING_KEYSTORE:file:certs/signing.p12}
+  key-store-password: ${SIGNING_KEYSTORE_PASSWORD:}
+  key-alias: ${SIGNING_KEY_ALIAS:license-signing}
+  algorithm: ${SIGNING_ALGORITHM:SHA256withRSA}

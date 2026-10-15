@@ -1,0 +1,23 @@
+# IDE
+.idea/
+*.iml
+
+# Maven
+target/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+application-local.yml
+# Ключи и сертификаты TLS (генерируются локально, в CI приходят из GitHub Secrets)
+certs/
+*.p12
+*.jks
+*.pfx
+*.key
+*.csr
+*.crt
+*.pem
