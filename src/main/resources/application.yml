@@ -22,6 +22,10 @@ admin:
 
 server:
   port: ${SERVER_PORT:8443}
+  servlet:
+    encoding:
+      # charset=UTF-8 в Content-Type: иначе Windows PowerShell 5.1 читает кириллицу в ответах как Latin-1
+      force-response: true
   ssl:
     enabled: ${SSL_ENABLED:true}
     # Хранилище с ключом сервера и цепочкой сертификатов (scripts/generate-certs.*); в репозиторий не коммитится
