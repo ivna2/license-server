@@ -12,6 +12,7 @@ if [ -z "${SIGNING_KEYSTORE_PASSWORD:-}" ]; then
   read -r -s -p "Пароль для хранилища ключа подписи (не короче 6 символов): " SIGNING_KEYSTORE_PASSWORD; echo
 fi
 P="$SIGNING_KEYSTORE_PASSWORD"
+if [ ${#P} -lt 6 ]; then echo "Пароль хранилища должен быть не короче 6 символов" >&2; exit 1; fi
 
 mkdir -p "$DIR"
 cd "$DIR"

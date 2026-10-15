@@ -12,6 +12,7 @@ if [ -z "${CERT_PASSWORD:-}" ]; then
   read -r -s -p "Пароль для хранилищ ключей (не короче 6 символов): " CERT_PASSWORD; echo
 fi
 P="$CERT_PASSWORD"
+if [ ${#P} -lt 6 ]; then echo "Пароль хранилища должен быть не короче 6 символов" >&2; exit 1; fi
 O="O=LicenseServer Lab, OU=Student ${STUDENT_ID}, C=RU"
 
 mkdir -p "$DIR"

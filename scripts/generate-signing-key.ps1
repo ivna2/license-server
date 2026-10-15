@@ -17,6 +17,7 @@ if (-not $P) {
     $secure = Read-Host "Пароль для хранилища ключа подписи (не короче 6 символов)" -AsSecureString
     $P = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
 }
+if ($P.Length -lt 6) { throw "Пароль хранилища должен быть не короче 6 символов" }
 
 New-Item -ItemType Directory -Force -Path $CertDir | Out-Null
 Push-Location $CertDir
