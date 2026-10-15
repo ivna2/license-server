@@ -61,9 +61,10 @@ class LicenseFlowTests extends IntegrationTest {
         assertThat(license.get("userId").isNull()).isTrue();
         assertThat(license.get("endingDate").isNull()).isTrue();
 
-        // Активация
+        // Активация (MAC в нижнем регистре через дефис)
+        String mac = randomMac();
         JsonNode activated = read(send(post("/api/licenses/activate"), user,
-                body("activationKey", key, "deviceMac", "aa-bb-cc-dd-ee-01", "deviceName", "Laptop"))
+                body("activationKey", key, "deviceMac", mac.toLowerCase().replace(':', '-'), "deviceName", "Laptop"))
                 .andExpect(status().isOk()).andReturn());
         JsonNode ticket = activated.get("ticket");
         assertSignatureValid(activated);
@@ -77,7 +78,7 @@ class LicenseFlowTests extends IntegrationTest {
 
         // Проверка: MAC в другом регистре и формате — то же устройство
         JsonNode checked = read(send(post("/api/licenses/check"), user,
-                body("deviceMac", "AA:BB:CC:DD:EE:01", "productId", productId))
+                body("deviceMac", mac, "productId", productId))
                 .andExpect(status().isOk()).andReturn());
         assertSignatureValid(checked);
         assertThat(checked.get("ticket").get("deviceId").asLong()).isEqualTo(deviceId);
